@@ -10,14 +10,9 @@ load_dotenv(".env")
 
 api_key = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
-    raise ValueError(
-        "GEMINI_API_KEY is missing. Check your .env file."
-    )
-
-
-# Create Gemini client
-client = genai.Client(api_key=api_key)
+# Keep the API importable when Gemini is not configured. The analyzer returns
+# the same safe failure response used for temporary provider failures.
+client = genai.Client(api_key=api_key) if api_key else None
 
 
 # Use a stable Gemini Flash model
@@ -31,10 +26,16 @@ def analyze_trend(
     likes,
     comments,
     velocity_score,
+    trend_strength=None,
+    trend_status=None,
+    category=None,
 ):
     """
-    Analyze a YouTube trend using Gemini.
+    Analyze a YouTube trend using only the supplied metadata and metrics.
     """
+
+    if client is None:
+        return "AI analysis is temporarily unavailable."
 
     prompt = f"""
 You are a YouTube Trend Intelligence Analyst.
@@ -48,29 +49,28 @@ Views: {views}
 Likes: {likes}
 Comments: {comments}
 Velocity Score: {velocity_score}
+Trend Strength: {trend_strength}
+Trend Status: {trend_status}
+Category: {category}
 
-Give the analysis using exactly these sections:
+Give the analysis using exactly these seven sections and no others:
 
 1. Main Topic
-Explain what the video is about based on the title and channel.
-
 2. Why It Is Trending
-Explain the possible reason for its high velocity and views.
-
 3. Audience Signal
-Analyze the relationship between views, likes and comments.
+4. Trend Strength
+5. Trend Risk
+6. Future Outlook
+7. One-Sentence Summary
 
-4. Trend Risk
-Explain whether the trend appears sustainable or could decline quickly.
-
-5. One-Sentence Summary
-Give one concise sentence summarizing the trend.
+Use the section heading exactly as written, followed by a concise answer.
+For any conclusion not supported by the supplied data, write exactly:
+"Insufficient data to determine."
 
 IMPORTANT:
-- Do not invent facts.
-- Do not claim information that is not present in the data.
-- Base the analysis on the provided metrics.
-- Keep the answer concise and useful.
+- Use only the supplied title, channel, category, status, and metrics.
+- Do not invent facts or infer outside events, audience demographics, or causes.
+- Keep every section concise and useful.
 """
 
     # Try the Gemini request
@@ -86,7 +86,7 @@ IMPORTANT:
             if response.text:
                 return response.text
 
-            return "Gemini returned an empty response."
+            return "AI analysis is temporarily unavailable."
 
         except Exception as error:
 
@@ -99,10 +99,7 @@ IMPORTANT:
             if attempt < 2:
                 time.sleep(2)
 
-    return (
-        "AI analysis is temporarily unavailable. "
-        "Please try again in a few seconds."
-    )
+    return "AI analysis is temporarily unavailable."
 
 
 def main():
@@ -141,6 +138,9 @@ def main():
             likes=video["likes"],
             comments=video["comments"],
             velocity_score=video["velocity_score"],
+            trend_strength=video.get("trend_strength"),
+            trend_status=video.get("trend_status"),
+            category=video.get("category"),
         )
 
         print()

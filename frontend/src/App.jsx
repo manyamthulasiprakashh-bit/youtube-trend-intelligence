@@ -1,374 +1,127 @@
 import { useEffect, useState } from "react";
+import "./App.css";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
+const ANALYSIS_SECTIONS = [
+  "1. Main Topic",
+  "2. Why It Is Trending",
+  "3. Audience Signal",
+  "4. Trend Strength",
+  "5. Trend Risk",
+  "6. Future Outlook",
+  "7. One-Sentence Summary",
+];
+
+async function fetchJson(path) {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+  return response.json();
+}
+
+function formatNumber(value, maximumFractionDigits = 0) {
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits });
+}
+
+function parseAnalysis(text) {
+  if (!text) return [];
+  return text.split(/(?=^\d+\. .+$)/m).map((section) => section.trim()).filter(Boolean).map((section) => {
+    const lineBreak = section.indexOf("\n");
+    return { heading: lineBreak === -1 ? section : section.slice(0, lineBreak), body: lineBreak === -1 ? "" : section.slice(lineBreak + 1).trim() };
+  });
+}
+
+function StatusBadge({ status }) {
+  return <span className={`status-badge status-${String(status || "").toLowerCase()}`}>{status || "UNKNOWN"}</span>;
+}
+
+function StatCard({ label, value, accent }) {
+  return <article className={`stat-card stat-${accent}`}><span className="stat-label">{label}</span><strong className="stat-value">{value}</strong></article>;
+}
 
 function App() {
   const [trends, setTrends] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [summary, setSummary] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [trendsLoading, setTrendsLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
+  const [connection, setConnection] = useState("checking");
   const [analysis, setAnalysis] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
-  const loadTrends = () => {
-    setLoading(true);
-    setError("");
-
-    fetch("http://127.0.0.1:8000/trends/top")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("API request failed");
-        }
-
-        return response.json();
-      })
-      .then((data) => {
-        setTrends(data.trends || []);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError("Could not connect to the API.");
-        setLoading(false);
-      });
+  const loadDashboard = async () => {
+    setDashboardLoading(true);
+    setSummaryLoading(true);
+    setTrendsLoading(true);
+    setDashboardError("");
+    const [summaryResult, trendsResult] = await Promise.allSettled([fetchJson("/trends/summary"), fetchJson("/trends/emerging")]);
+    const summarySucceeded = summaryResult.status === "fulfilled";
+    const trendsSucceeded = trendsResult.status === "fulfilled";
+    setConnection(summarySucceeded && trendsSucceeded ? "online" : "offline");
+    setSummary(summarySucceeded ? summaryResult.value : null);
+    setTrends(trendsSucceeded ? trendsResult.value || [] : []);
+    if (!summarySucceeded && !trendsSucceeded) setDashboardError("The intelligence API is unavailable. Refresh to try again.");
+    else if (!summarySucceeded || !trendsSucceeded) setDashboardError("Some trend data could not be loaded. Refresh to retry.");
+    setSummaryLoading(false);
+    setTrendsLoading(false);
+    setDashboardLoading(false);
   };
 
-  const analyzeVideo = (videoId) => {
+  const analyzeVideo = async (videoId) => {
     setAnalysisLoading(true);
     setAnalysis(null);
-
-    fetch(`http://127.0.0.1:8000/trends/${videoId}/analysis`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Analysis request failed");
-        }
-
-        return response.json();
-      })
-      .then((data) => {
-        setAnalysis(data);
-        setAnalysisLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setAnalysisLoading(false);
-        setAnalysis({
-          error: "Could not generate AI analysis.",
-        });
-      });
+    try {
+      setAnalysis(await fetchJson(`/trends/${encodeURIComponent(videoId)}/analysis`));
+    } catch (error) {
+      console.error(error);
+      setAnalysis({ error: "AI analysis is temporarily unavailable." });
+    } finally {
+      setAnalysisLoading(false);
+    }
   };
 
-  useEffect(() => {
-    loadTrends();
-  }, []);
+  useEffect(() => { loadDashboard(); }, []);
 
-  const totalViews = trends.reduce(
-    (sum, video) => sum + Number(video.views || 0),
-    0
-  );
-
-  const explodingCount = trends.filter(
-    (video) => video.trend_status === "EXPLODING"
-  ).length;
-
-  const averageVelocity =
-    trends.length > 0
-      ? trends.reduce(
-          (sum, video) => sum + Number(video.velocity_score || 0),
-          0
-        ) / trends.length
-      : 0;
+  const statusCounts = summary?.status_counts || {};
+  const topCategory = summary?.top_categories?.[0]?.category || "No data";
+  const parsedAnalysis = parseAnalysis(analysis?.analysis);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#111",
-        color: "#eee",
-        padding: "40px",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      {/* Header */}
-
-      <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
-        <h1
-          style={{
-            fontSize: "42px",
-            marginBottom: "8px",
-          }}
-        >
-          🔥 YouTube Trend Intelligence
-        </h1>
-
-        <p
-          style={{
-            color: "#aaa",
-            fontSize: "18px",
-          }}
-        >
-          AI-powered YouTube trend analysis
-        </p>
-
-        <button
-          onClick={loadTrends}
-          style={{
-            marginTop: "15px",
-            padding: "10px 18px",
-            borderRadius: "8px",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          🔄 Refresh Trends
-        </button>
-
-        {/* Dashboard Cards */}
-
-        {!loading && !error && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: "20px",
-              marginTop: "35px",
-              marginBottom: "35px",
-            }}
-          >
-            <div style={cardStyle}>
-              <div style={cardTitleStyle}>🔥 TOP TRENDS</div>
-
-              <div style={cardValueStyle}>{trends.length}</div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={cardTitleStyle}>📈 EXPLODING</div>
-
-              <div style={cardValueStyle}>{explodingCount}</div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={cardTitleStyle}>👁 TOTAL VIEWS</div>
-
-              <div style={cardValueStyle}>
-                {totalViews.toLocaleString()}
-              </div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={cardTitleStyle}>⚡ AVG VELOCITY</div>
-
-              <div style={cardValueStyle}>
-                {averageVelocity.toFixed(0)}
-              </div>
-            </div>
+    <main className="app-shell">
+      <div className="dashboard-wrap">
+        <header className="dashboard-header">
+          <div><p className="eyebrow">SIGNAL DESK / LIVE MONITOR</p><h1>YouTube Trend Intelligence</h1><p className="subtitle">AI-powered real-time trend intelligence</p></div>
+          <div className="header-actions">
+            <span className={`connection-status connection-${connection}`}><span className="connection-dot" />{connection === "checking" ? "Checking API" : connection === "online" ? "API connected" : "API unavailable"}</span>
+            <button className="button button-primary" onClick={loadDashboard} disabled={dashboardLoading}><span aria-hidden="true">↻</span> {dashboardLoading ? "Refreshing..." : "Refresh"}</button>
           </div>
-        )}
+        </header>
 
-        {/* Loading */}
+        {dashboardError && <div className="error-banner" role="alert"><span>{dashboardError}</span><button className="button button-quiet" onClick={loadDashboard}>Retry</button></div>}
 
-        {loading && <p>Loading trends...</p>}
+        <section className="stats-grid" aria-label="Trend summary">
+          <StatCard label="Total videos" value={summaryLoading ? "..." : formatNumber(summary?.total_videos)} accent="cyan" />
+          <StatCard label="Average strength" value={summaryLoading ? "..." : `${Number(summary?.average_trend_strength || 0).toFixed(1)} / 100`} accent="amber" />
+          <StatCard label="Top category" value={summaryLoading ? "..." : topCategory} accent="violet" />
+          <StatCard label="Exploding trends" value={summaryLoading ? "..." : formatNumber(statusCounts.EXPLODING)} accent="red" />
+          <StatCard label="Growing trends" value={summaryLoading ? "..." : formatNumber(statusCounts.GROWING)} accent="green" />
+          <StatCard label="Declining trends" value={summaryLoading ? "..." : formatNumber(statusCounts.DECLINING)} accent="slate" />
+        </section>
 
-        {/* Error */}
+        <section className="workspace-section">
+          <div className="section-heading"><div><p className="eyebrow">EMERGING SIGNALS</p><h2>Trending videos</h2></div><span className="result-count">{trendsLoading ? "Loading signals" : `${trends.length} ranked signals`}</span></div>
+          {trendsLoading ? <div className="loading-panel"><span className="loading-bar" /> Loading emerging trends...</div> : trends.length === 0 ? <div className="empty-panel">No emerging trends are available right now.</div> : (
+            <div className="table-frame"><table className="trend-table"><thead><tr><th>Rank</th><th>Video title</th><th>Channel</th><th>Category</th><th>Views</th><th>Likes</th><th>Comments</th><th>Velocity score</th><th>Strength</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+              {trends.map((video) => { const watchUrl = video.video_url || video.url; return <tr key={video.video_id}><td className="rank-cell">{video.rank}</td><td className="title-cell" title={video.title}>{video.title}</td><td>{video.channel}</td><td><span className="category-label">{video.category}</span></td><td>{formatNumber(video.views)}</td><td>{formatNumber(video.likes)}</td><td>{formatNumber(video.comments)}</td><td>{formatNumber(video.velocity_score, 2)}</td><td><strong className="strength-value">{Number(video.trend_strength || 0).toFixed(2)}</strong></td><td><StatusBadge status={video.trend_status} /></td><td className="action-cell"><button className="button button-watch" onClick={() => watchUrl && window.open(watchUrl, "_blank", "noopener,noreferrer")} disabled={!watchUrl} title={watchUrl ? "Open video" : "No video URL available from the API"}>Watch</button><button className="button button-analyze" onClick={() => analyzeVideo(video.video_id)}>Analyze</button></td></tr>; })}
+            </tbody></table></div>
+          )}
+        </section>
 
-        {error && (
-          <div
-            style={{
-              marginTop: "30px",
-              padding: "20px",
-              border: "1px solid #733",
-              borderRadius: "10px",
-            }}
-          >
-            ❌ {error}
-          </div>
-        )}
-
-        {/* Trend Table */}
-
-        {!loading && !error && (
-          <div
-            style={{
-              overflowX: "auto",
-              marginTop: "30px",
-            }}
-          >
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th style={headerStyle}>Rank</th>
-                  <th style={headerStyle}>Title</th>
-                  <th style={headerStyle}>Channel</th>
-                  <th style={headerStyle}>Views</th>
-                  <th style={headerStyle}>Likes</th>
-                  <th style={headerStyle}>Comments</th>
-                  <th style={headerStyle}>Velocity</th>
-                  <th style={headerStyle}>Status</th>
-                  <th style={headerStyle}>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {trends.map((video) => (
-                  <tr key={video.video_id}>
-                    <td style={cellStyle}>
-                      {video.velocity_rank}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {video.title}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {video.channel}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {Number(video.views).toLocaleString()}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {Number(video.likes).toLocaleString()}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {Number(video.comments).toLocaleString()}
-                    </td>
-
-                    <td style={cellStyle}>
-                      {Number(video.velocity_score).toFixed(2)}
-                    </td>
-
-                    <td style={cellStyle}>
-                      <span
-                        style={{
-                          padding: "6px 10px",
-                          borderRadius: "20px",
-                          background:
-                            video.trend_status === "EXPLODING"
-                              ? "#5a1a1a"
-                              : "#222",
-                        }}
-                      >
-                        {video.trend_status === "EXPLODING"
-                          ? "🔥 EXPLODING"
-                          : video.trend_status}
-                      </span>
-                    </td>
-
-                    <td style={cellStyle}>
-                      <button
-                        onClick={() =>
-                          window.open(
-                            `https://www.youtube.com/watch?v=${video.video_id}`,
-                            "_blank"
-                          )
-                        }
-                        style={actionButtonStyle}
-                      >
-                        ▶ Watch
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          analyzeVideo(video.video_id)
-                        }
-                        style={actionButtonStyle}
-                      >
-                        🤖 Analyze
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* AI Analysis */}
-
-        {analysisLoading && (
-          <div style={analysisBoxStyle}>
-            <h2>🤖 AI Trend Analysis</h2>
-
-            <p>Gemini is analyzing this trend...</p>
-          </div>
-        )}
-
-        {analysis && !analysisLoading && (
-          <div style={analysisBoxStyle}>
-            <h2>🤖 AI Trend Analysis</h2>
-
-            {analysis.error ? (
-              <p>{analysis.error}</p>
-            ) : (
-              <>
-                <h3>{analysis.title}</h3>
-
-                <div
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    lineHeight: "1.8",
-                    color: "#ccc",
-                  }}
-                >
-                  {analysis.analysis}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {analysisLoading && <section className="analysis-panel" aria-live="polite"><div className="analysis-heading"><span className="ai-mark">AI</span><div><p className="eyebrow">GEMINI INSIGHT</p><h2>AI Trend Analysis</h2></div></div><div className="analysis-loading">Analyzing trend<span className="loading-dots">...</span></div></section>}
+        {analysis && !analysisLoading && <section className="analysis-panel" aria-live="polite"><div className="analysis-heading"><span className="ai-mark">AI</span><div><p className="eyebrow">GEMINI INSIGHT</p><h2>AI Trend Analysis</h2><p className="analysis-title">{analysis.title}</p></div><button className="close-button" onClick={() => setAnalysis(null)} aria-label="Close analysis">×</button></div>{analysis.error ? <div className="analysis-error">{analysis.error}</div> : <div className="analysis-grid">{ANALYSIS_SECTIONS.map((heading) => { const section = parsedAnalysis.find((item) => item.heading === heading); return <article className="analysis-item" key={heading}><h3>{heading.replace(/^\d+\. /, "")}</h3><p>{section?.body || "Insufficient data to determine."}</p></article>; })}</div>}</section>}
       </div>
-    </div>
+    </main>
   );
 }
-
-const cardStyle = {
-  background: "#1b1b1b",
-  border: "1px solid #333",
-  borderRadius: "12px",
-  padding: "22px",
-};
-
-const cardTitleStyle = {
-  color: "#999",
-  fontSize: "14px",
-};
-
-const cardValueStyle = {
-  fontSize: "30px",
-  fontWeight: "bold",
-  marginTop: "10px",
-};
-
-const headerStyle = {
-  textAlign: "left",
-  padding: "14px",
-  borderBottom: "2px solid #444",
-};
-
-const cellStyle = {
-  padding: "14px",
-  borderBottom: "1px solid #333",
-};
-
-const actionButtonStyle = {
-  marginRight: "8px",
-  marginBottom: "5px",
-  padding: "8px 12px",
-  border: "none",
-  borderRadius: "7px",
-  cursor: "pointer",
-};
-
-const analysisBoxStyle = {
-  marginTop: "40px",
-  padding: "30px",
-  border: "1px solid #555",
-  borderRadius: "12px",
-  background: "#171717",
-};
 
 export default App;

@@ -1,4 +1,14 @@
 :root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+:root {
   --text: #6b6375;
   --text-h: #08060d;
   --bg: #fff;
