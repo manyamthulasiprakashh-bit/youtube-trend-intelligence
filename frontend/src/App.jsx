@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://youtube-trend-intelligence.onrender.com";
 const ANALYSIS_SECTIONS = [
   "1. Main Topic",
   "2. Why It Is Trending",
