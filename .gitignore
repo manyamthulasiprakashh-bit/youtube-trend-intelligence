@@ -157,6 +157,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local historical observations
+data/raw/trending_snapshots.csv
+
 # Spyder project settings
 .spyderproject
 .spyproject
